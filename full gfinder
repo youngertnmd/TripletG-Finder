@@ -1,0 +1,252 @@
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.io.*;
+
+import static org.biojava.nbio.ws.alignment.qblast.BlastAlignmentParameterEnum.ENTREZ_QUERY;
+
+import org.biojava.bio.BioException;
+import org.biojava.bio.seq.db.IllegalIDException;
+import org.biojava.bio.symbol.SymbolList;
+import org.biojavax.bio.db.ncbi.GenbankRichSequenceDB;
+import org.biojavax.bio.seq.RichSequence;
+import org.biojava.nbio.core.sequence.io.util.IOUtils;
+import org.biojava.nbio.ws.alignment.qblast.*;
+
+
+	public class GfinderAll {
+		//declare variables
+			private static BufferedReader bf = null;
+			private  String line;
+			private String seq = "";
+			private static String BLAST_OUTPUT_FILE = "blastOutput.xml";    
+			private static final String BLAST_OUTPUT_FILES = "blastOutputs.xml";  // file to save blast results to
+			private static final ArrayList<String> al4=new ArrayList<String>();
+			RichSequence rs = null;
+		    GenbankRichSequenceDB grsdb = new GenbankRichSequenceDB();
+			
+			
+			//load DNA sequence file
+			public void getFile() throws IOException{
+				NCBIQBlastService service = new NCBIQBlastService();
+				// set alignment options
+						NCBIQBlastAlignmentProperties props = new NCBIQBlastAlignmentProperties();
+						props.setBlastProgram(BlastProgramEnum.blastn);
+						props.setBlastDatabase("nr");
+						props.setAlignmentOption(ENTREZ_QUERY, "Halobacterium sp. NRC-1[organism]");
+				 
+						// set output options
+						NCBIQBlastOutputProperties outputProps = new NCBIQBlastOutputProperties();
+						String rid = null;          // blast request ID
+						FileWriter writer = null;
+						BufferedReader reader = null;
+						ArrayList<String> al=new ArrayList<String>();
+				try {
+					rs = grsdb.getRichSequence("AE004437");
+					System.out.println(rs.getName()+"\n" +rs.getDescription());
+					SymbolList sl = rs.getInternalSymbolList();
+					System.out.println(sl.seqString());
+					
+					    
+						   File file = new File ("testing.txt");
+						   if (! file.exists ()){
+							   file.createNewFile();
+						   }
+						  FileWriter fw = new FileWriter (file.getAbsoluteFile ());
+						  BufferedWriter bw = new BufferedWriter (fw);
+						  bw.write(sl.seqString());
+						  bw.close();
+						  System.out.println("Testing sequence should write to: testing.txt");
+					 }
+				      
+				      catch(BioException be){
+				    	  System.out.println("Error:"+be);
+				    	  be.printStackTrace();
+					      System.exit(0);
+				      }
+				try {
+					bf = new BufferedReader(new FileReader("testing.txt"));//read fasta file into program
+					
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					
+				}
+				while ((line = bf.readLine()) != null){
+					seq += line;//add each line of fasta file to seq string
+				}
+					Pattern pattern = Pattern.compile("([gG]{3,}\\w{1,7}){2,}[gG]{3,}");
+				    
+					 Matcher matcher = pattern.matcher(seq);
+					    // check all occurance
+					    int count = 0;
+					    
+					        while(matcher.find()) {
+					        	float count_of_G = 0;
+								float count_of_C = 0;
+								float GC_content = 0;
+					            count++;
+					           System.out.println("found: " + count + " : "
+					                    + matcher.start() + " - " + matcher.end() + " " + matcher.group() + " ");
+					           for (int i = 0; i < matcher.group().length(); i++){// Start iteration
+					   			
+					   			switch (matcher.group().charAt(i)){// Start control statement
+					   			
+					   			case ('G'): 
+					   				count_of_G++;
+					   			break;
+					   			case ('C'): 
+					   				count_of_C++;
+					   			break;
+					   			}
+					   			
+					   		}
+					   		GC_content = ((count_of_G + count_of_C)/matcher.group().length())*100;// Calculate GC content
+					   		System.out.printf("The percent of GC content in this DNA sequence is: %.2f%n", GC_content);// Display GC content percentage
+					   		al4.add("Candidate Sequence #" + count + "\n");
+					   		al4.add(matcher.group().concat("\n"));
+					   		al4.add("Location: " + matcher.start() + " - " + matcher.end() + "\n");
+					   		al4.add("GC content " + GC_content + "\n");
+					   		
+
+					   		try {
+					        	
+				    			// send blast request and save request id
+				    			rid = service.sendAlignmentRequest(matcher.group(), props);
+				     
+				    			// wait until results become available. Alternatively, one can do other computations/send other alignment requests
+				    			while (!service.isReady(rid)) {
+				    				System.out.println("Waiting for results. Sleeping for 5 seconds");
+				    				Thread.sleep(5000);
+				    			}
+				     
+				    			// read results when they are ready
+				    			InputStream in = service.getAlignmentResults(rid, outputProps);
+				    			reader = new BufferedReader(new InputStreamReader(in));
+				     
+				    			// write blast output to specified file
+				    			File f = new File(BLAST_OUTPUT_FILE);
+				    			System.out.println("Saving query results in file " + f.getAbsolutePath());
+				    			writer = new FileWriter(f);
+				    			
+				     
+				    			String line;
+				    			while ((line = reader.readLine()) != null) {
+				    				writer.write(line + System.getProperty("line.separator"));
+				    				al.add(line);
+				    				
+				    			}
+				    			
+				    			getAccession();
+				    			FileWriter fw = new FileWriter(BLAST_OUTPUT_FILES);
+				    			Writer output = new BufferedWriter(fw);
+				    			int sz = al.size();
+				    			for (int i = 0; i < sz; i++){
+				    				output.write(al.get(i).toString() + "\n");
+				    			}
+				    			output.close();
+
+
+				    			
+				    		} catch (Exception e) {
+				    			System.out.println("error");
+				    			System.out.println(e.getMessage());
+				    			e.printStackTrace();
+				    		} finally {
+				    			// clean up
+				    			IOUtils.close(writer);
+				    			IOUtils.close(reader);
+				     
+				    			// delete given alignment results from blast server (optional operation)
+				    			service.sendDeleteRequest(rid);
+				    		}
+					        
+				    	} 
+					        writeCsvoutput();
+					        System.out.println(al4);   
+					       
+				}
+				
+				
+				public static void getAccession() throws IOException{
+					ArrayList<String> al2 = new ArrayList<String>();
+					String line;
+					String seq = "";
+					 RichSequence rs = null;
+			           
+			            GenbankRichSequenceDB grsdb = new GenbankRichSequenceDB();
+					 al2.clear();
+			        try {
+						bf = new BufferedReader(new FileReader("blastOutput.xml"));
+						
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+						
+					}
+			       
+			        
+					while ((line = bf.readLine()) != null){
+						seq += line;
+					}
+						
+						Pattern pattern = Pattern.compile("(<Hit_id>\\w+.\\d+.\\w+.)(\\w+.\\d.\\d)");
+					    
+					    Matcher matcher = pattern.matcher(seq);
+					    // check all occurance
+					    
+					    	
+					    	
+					        while(matcher.find()) {
+					        	al2.add(matcher.group(2));
+					        	try {
+									rs = grsdb.getRichSequence(matcher.group(2));
+								} catch (IllegalIDException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+								} catch (BioException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+							
+					        }
+					        	al4.add(rs.getName() +"\n");
+					        	al4.add(rs.getDescription() + "\n");
+					        	al4.add(rs.getAnnotation() + "\n");
+					        	
+					        	
+					        }
+
+					        
+					        al2.clear();
+					
+		}
+				public static void writeCsvoutput() throws IOException{
+					
+					String[] array = al4.toArray(new String[] {});
+					FileWriter fw = new FileWriter("output.csv");
+					   PrintWriter out = new PrintWriter(fw);
+					   int size = array.length;
+				        for (int i=0; i<size; i++)
+				        {
+				            out.println(array[i]);
+				        }
+
+					 
+					   out.flush();
+					 //Close the Print Writer
+					   out.close();
+					       
+					   //Close the File Writer
+					   fw.close();   
+
+
+				}
+				public static void main(String[] args) throws IOException {
+					
+					GfinderAll g = new GfinderAll();
+						
+						g.getFile();	
+					}
+	}
+
+
